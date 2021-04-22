@@ -3,13 +3,15 @@
   import RotatingWheel from './RotatingWheel.svelte';
   import SpinningPiece from './SpinningPiece.svelte'
   import { fly } from 'svelte/transition';
+  import { fade } from 'svelte/transition';
   import { cubicInOut } from 'svelte/easing';
 import fadeScale from './animations/fadeScale';
+import { Colors } from './consts/colors';
 
 
-  let questionBoxOpen = false;
+  let questionBoxOpen = true;
 
-  let animationTimer = 0.5;
+  let animationTimer = 2;
   let rotationDegrees = 0;
   let prevRot = 0;
 
@@ -26,62 +28,64 @@ import fadeScale from './animations/fadeScale';
     prevRot = rotationDegrees;
 
     const normRot = 360 - (prevRot + rotationDegrees) % 360;
-    landingQuestion = (Math.ceil(normRot / pieceDeg) * pieceDeg) / pieceDeg;
+    landingQuestion = (Math.ceil(normRot / pieceDeg) * pieceDeg) / pieceDeg - 1;
     console.log('question idx', landingQuestion)
 
     setTimeout(() => {
       spinning = false;
-      // questionBoxOpen = true;
+      questionBoxOpen = true;
     }, animationTimer * 1000)
   }  
   const triangleHeight = Math.min(window.innerWidth, window.innerHeight) / 3;
-  console.log("height?!?!?", triangleHeight);
 </script>
 
 <div class='bg-image'/>
 <main style='
---timer: {animationTimer}s;
+--timer: {animationTimer + .5}s;
 --triangleHeight: {`${triangleHeight}px`};
 '>
   <link href="//maxcdn.bootstrapcdn.com/font-awesome/4.1.0/css/font-awesome.min.css" rel="stylesheet">
   {#if (questionBoxOpen)}
+    {console.log(Colors[landingQuestion])}
     <div
       class='question-box'
+      style="background-color: {Colors[landingQuestion]}"
       transition:fadeScale={{
-        delay: 500,
-        duration: 1000,
+        delay: 0,
+        duration: 500,
         easing: cubicInOut,
-        baseScale: 0.1
+        baseScale: 0.5
       }}
-     >
-      ok
-      ok
-      ok
-      ok
-      ok
+    >
+      <div class='question-box-closer' on:click={() => questionBoxOpen = false}>
+        &#x2716;
+      </div>
+      <p>{Questions[landingQuestion].text}</p>
     </div>
   {:else}
-    <div
-      class={`ticker ${spinning && "spinning-ticker"}`}
-      style=''
-    />
-    <RotatingWheel
-      active={spinning}
-      previousRot={prevRot}
-      rotation={rotationDegrees}
-      timer={animationTimer}
-      landingQuestion={landingQuestion}
-    />
-    <div
-      on:click={() => !spinning && onSpin()}
-      class={`spin-button ${spinning && "disabled"}`}
-    >
-      {spinning ? "Snurre..." : "Still mæ et spørsmål!"}
+    <div in:fade={{duration: 200}} out:fade={{duration: 200}}>
+      <div class={`ticker ${spinning && 'spinning-ticker'}`} />
+      <RotatingWheel
+        active={spinning}
+        previousRot={prevRot}
+        rotation={rotationDegrees}
+        timer={animationTimer}
+      />
+      <div
+        on:click={() => !spinning && onSpin()}
+        class={`spin-button ${spinning && "disabled"}`}
+      >
+        {spinning ? "Snurre..." : "Still mæ et spørsmål!"}
+      </div>
     </div>
   {/if}
 </main>
 
 <style>
+:root {
+  overflow: hidden;
+  overflow-y: hidden;
+}
 .bg-image {
   height: 100%;
   background-image: url('./assets/generalhagen.jpg');
@@ -93,7 +97,32 @@ import fadeScale from './animations/fadeScale';
   position: fixed;
   top: 0;
   left: 0;
-  background: black;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-size: 2em;
+  color: black;
+}
+.question-box p {
+  text-shadow: 0px 3px 20px white;
+  word-break: break-word;
+  margin: 0 10%;
+}
+.question-box-closer {
+  position: fixed;
+  bottom: 15%;
+  left: 50%;
+  width: 50px;
+  height: 50px;
+  margin-left: -25px;
+  justify-content: center;
+  align-items: center;
+  display: flex;
+  border: 2px solid black;
+  border-radius: 50%;
+  cursor: pointer;
 }
 .spin-button {
   position: fixed;
@@ -106,11 +135,11 @@ import fadeScale from './animations/fadeScale';
   bottom: 0%;
   left: 50%;
   margin-left: -90px;
-  margin-bottom: 50px;
+  margin-bottom: 15%;
   align-items: center;
   justify-content: center;
   background-image: linear-gradient(to left bottom, #5daeef, #00b8e2, #00bcb4, #12b871, #82ad27);
-  border-radius: 28% 72% 47% 53% / 54% 47% 53% 46% ;
+  /* border-radius: 28% 72% 47% 53% / 54% 47% 53% 46% ; */
   border: 1px solid black;
   font-weight: 500;
   font-size: 20px;
@@ -142,13 +171,8 @@ import fadeScale from './animations/fadeScale';
   transition: all .5s ease;
 }
 @keyframes tick {
-  0% { transform: rotate(-60deg) }
-  3% { transform: rotate(-30deg) }
-  5% { transform: rotate(-80deg) }
-  7% { transform: rotate(-40deg) }
-  10% { transform: rotate(-70deg) }
-  13% { transform: rotate(-40deg) }
-  15% { transform: rotate(-60deg) }
+  0% { transform: rotate(-22deg) }
+  12% { transform: rotate(-30deg) }
   17% { transform: rotate(-30deg) }
   20% { transform: rotate(-50deg) }
   23% { transform: rotate(-40deg) }

@@ -91,6 +91,9 @@ var app = (function () {
     function space() {
         return text(' ');
     }
+    function empty() {
+        return text('');
+    }
     function listen(node, event, handler, options) {
         node.addEventListener(event, handler, options);
         return () => node.removeEventListener(event, handler, options);
@@ -294,6 +297,124 @@ var app = (function () {
         }
     }
     const null_transition = { duration: 0 };
+    function create_in_transition(node, fn, params) {
+        let config = fn(node, params);
+        let running = false;
+        let animation_name;
+        let task;
+        let uid = 0;
+        function cleanup() {
+            if (animation_name)
+                delete_rule(node, animation_name);
+        }
+        function go() {
+            const { delay = 0, duration = 300, easing = identity, tick = noop, css } = config || null_transition;
+            if (css)
+                animation_name = create_rule(node, 0, 1, duration, delay, easing, css, uid++);
+            tick(0, 1);
+            const start_time = now() + delay;
+            const end_time = start_time + duration;
+            if (task)
+                task.abort();
+            running = true;
+            add_render_callback(() => dispatch(node, true, 'start'));
+            task = loop(now => {
+                if (running) {
+                    if (now >= end_time) {
+                        tick(1, 0);
+                        dispatch(node, true, 'end');
+                        cleanup();
+                        return running = false;
+                    }
+                    if (now >= start_time) {
+                        const t = easing((now - start_time) / duration);
+                        tick(t, 1 - t);
+                    }
+                }
+                return running;
+            });
+        }
+        let started = false;
+        return {
+            start() {
+                if (started)
+                    return;
+                delete_rule(node);
+                if (is_function(config)) {
+                    config = config();
+                    wait().then(go);
+                }
+                else {
+                    go();
+                }
+            },
+            invalidate() {
+                started = false;
+            },
+            end() {
+                if (running) {
+                    cleanup();
+                    running = false;
+                }
+            }
+        };
+    }
+    function create_out_transition(node, fn, params) {
+        let config = fn(node, params);
+        let running = true;
+        let animation_name;
+        const group = outros;
+        group.r += 1;
+        function go() {
+            const { delay = 0, duration = 300, easing = identity, tick = noop, css } = config || null_transition;
+            if (css)
+                animation_name = create_rule(node, 1, 0, duration, delay, easing, css);
+            const start_time = now() + delay;
+            const end_time = start_time + duration;
+            add_render_callback(() => dispatch(node, false, 'start'));
+            loop(now => {
+                if (running) {
+                    if (now >= end_time) {
+                        tick(0, 1);
+                        dispatch(node, false, 'end');
+                        if (!--group.r) {
+                            // this will result in `end()` being called,
+                            // so we don't need to clean up here
+                            run_all(group.c);
+                        }
+                        return false;
+                    }
+                    if (now >= start_time) {
+                        const t = easing((now - start_time) / duration);
+                        tick(1 - t, t);
+                    }
+                }
+                return running;
+            });
+        }
+        if (is_function(config)) {
+            wait().then(() => {
+                // @ts-ignore
+                config = config();
+                go();
+            });
+        }
+        else {
+            go();
+        }
+        return {
+            end(reset) {
+                if (reset && config.tick) {
+                    config.tick(1, 0);
+                }
+                if (running) {
+                    if (animation_name)
+                        delete_rule(node, animation_name);
+                    running = false;
+                }
+            }
+        };
+    }
     function create_bidirectional_transition(node, fn, params, intro) {
         let config = fn(node, params);
         let t = intro ? 0 : 1;
@@ -660,9 +781,9 @@ var app = (function () {
     			div1 = element("div");
     			div0 = element("div");
     			t = text(t_value);
-    			attr_dev(div0, "class", "" + (null_to_empty(`piece-content`) + " svelte-5ketk"));
+    			attr_dev(div0, "class", "" + (null_to_empty(`piece-content`) + " svelte-fggtls"));
     			add_location(div0, file$2, 21, 2, 313);
-    			attr_dev(div1, "class", "piece svelte-5ketk");
+    			attr_dev(div1, "class", "piece svelte-fggtls");
     			set_style(div1, "--slice-position", /*position*/ ctx[5]);
     			set_style(div1, "--bg", /*color*/ ctx[1]);
     			set_style(div1, "--rot", /*rot*/ ctx[2]);
@@ -852,29 +973,369 @@ var app = (function () {
         '#E64D66', '#4DB380', '#FF4D4D', '#99E6E6', '#6666FF'
     ];
 
+    function cubicInOut(t) {
+        return t < 0.5 ? 4.0 * t * t * t : 0.5 * Math.pow(2.0 * t - 2.0, 3.0) + 1.0;
+    }
+    function cubicOut(t) {
+        const f = t - 1.0;
+        return f * f * f + 1.0;
+    }
+    function elasticInOut(t) {
+        return t < 0.5
+            ? 0.5 *
+                Math.sin(((+13.0 * Math.PI) / 2) * 2.0 * t) *
+                Math.pow(2.0, 10.0 * (2.0 * t - 1.0))
+            : 0.5 *
+                Math.sin(((-13.0 * Math.PI) / 2) * (2.0 * t - 1.0 + 1.0)) *
+                Math.pow(2.0, -10.0 * (2.0 * t - 1.0)) +
+                1.0;
+    }
+    function elasticIn(t) {
+        return Math.sin((13.0 * t * Math.PI) / 2) * Math.pow(2.0, 10.0 * (t - 1.0));
+    }
+    function elasticOut(t) {
+        return (Math.sin((-13.0 * (t + 1.0) * Math.PI) / 2) * Math.pow(2.0, -10.0 * t) + 1.0);
+    }
+
+    function fade(node, { delay = 0, duration = 400, easing = identity } = {}) {
+        const o = +getComputedStyle(node).opacity;
+        return {
+            delay,
+            duration,
+            easing,
+            css: t => `opacity: ${t * o}`
+        };
+    }
+    function fly(node, { delay = 0, duration = 400, easing = cubicOut, x = 0, y = 0, opacity = 0 } = {}) {
+        const style = getComputedStyle(node);
+        const target_opacity = +style.opacity;
+        const transform = style.transform === 'none' ? '' : style.transform;
+        const od = target_opacity * (1 - opacity);
+        return {
+            delay,
+            duration,
+            easing,
+            css: (t, u) => `
+			transform: ${transform} translate(${(1 - t) * x}px, ${(1 - t) * y}px);
+			opacity: ${target_opacity - (od * u)}`
+        };
+    }
+
     /* src\RotatingWheel.svelte generated by Svelte v3.37.0 */
+
+    const { console: console_1$1 } = globals;
     const file$1 = "src\\RotatingWheel.svelte";
 
-    function get_each_context(ctx, list, i) {
+    function get_each_context_1(ctx, list, i) {
     	const child_ctx = ctx.slice();
-    	child_ctx[9] = list[i];
-    	child_ctx[11] = i;
+    	child_ctx[10] = list[i];
+    	child_ctx[12] = i;
     	return child_ctx;
     }
 
-    // (30:2) {#each Questions as question, i}
+    function get_each_context(ctx, list, i) {
+    	const child_ctx = ctx.slice();
+    	child_ctx[10] = list[i];
+    	child_ctx[12] = i;
+    	return child_ctx;
+    }
+
+    // (54:0) {:else}
+    function create_else_block$1(ctx) {
+    	let div;
+    	let current;
+    	let each_value_1 = Questions;
+    	validate_each_argument(each_value_1);
+    	let each_blocks = [];
+
+    	for (let i = 0; i < each_value_1.length; i += 1) {
+    		each_blocks[i] = create_each_block_1(get_each_context_1(ctx, each_value_1, i));
+    	}
+
+    	const out = i => transition_out(each_blocks[i], 1, 1, () => {
+    		each_blocks[i] = null;
+    	});
+
+    	const block = {
+    		c: function create() {
+    			div = element("div");
+
+    			for (let i = 0; i < each_blocks.length; i += 1) {
+    				each_blocks[i].c();
+    			}
+
+    			attr_dev(div, "id", "wheel");
+    			set_style(div, "--width", /*trianglePx*/ ctx[6]);
+    			set_style(div, "--timer", `${/*timer*/ ctx[3]}s`);
+    			set_style(div, "--degFallback", `${/*previousRot*/ ctx[0] + /*rotation*/ ctx[1]}deg`);
+    			attr_dev(div, "class", "svelte-ri2rij");
+    			add_location(div, file$1, 54, 2, 1438);
+    		},
+    		m: function mount(target, anchor) {
+    			insert_dev(target, div, anchor);
+
+    			for (let i = 0; i < each_blocks.length; i += 1) {
+    				each_blocks[i].m(div, null);
+    			}
+
+    			current = true;
+    		},
+    		p: function update(ctx, dirty) {
+    			if (dirty & /*degrees, Colors, triangleWidth, triangleHeight*/ 416) {
+    				each_value_1 = Questions;
+    				validate_each_argument(each_value_1);
+    				let i;
+
+    				for (i = 0; i < each_value_1.length; i += 1) {
+    					const child_ctx = get_each_context_1(ctx, each_value_1, i);
+
+    					if (each_blocks[i]) {
+    						each_blocks[i].p(child_ctx, dirty);
+    						transition_in(each_blocks[i], 1);
+    					} else {
+    						each_blocks[i] = create_each_block_1(child_ctx);
+    						each_blocks[i].c();
+    						transition_in(each_blocks[i], 1);
+    						each_blocks[i].m(div, null);
+    					}
+    				}
+
+    				group_outros();
+
+    				for (i = each_value_1.length; i < each_blocks.length; i += 1) {
+    					out(i);
+    				}
+
+    				check_outros();
+    			}
+
+    			if (!current || dirty & /*timer*/ 8) {
+    				set_style(div, "--timer", `${/*timer*/ ctx[3]}s`);
+    			}
+
+    			if (!current || dirty & /*previousRot, rotation*/ 3) {
+    				set_style(div, "--degFallback", `${/*previousRot*/ ctx[0] + /*rotation*/ ctx[1]}deg`);
+    			}
+    		},
+    		i: function intro(local) {
+    			if (current) return;
+
+    			for (let i = 0; i < each_value_1.length; i += 1) {
+    				transition_in(each_blocks[i]);
+    			}
+
+    			current = true;
+    		},
+    		o: function outro(local) {
+    			each_blocks = each_blocks.filter(Boolean);
+
+    			for (let i = 0; i < each_blocks.length; i += 1) {
+    				transition_out(each_blocks[i]);
+    			}
+
+    			current = false;
+    		},
+    		d: function destroy(detaching) {
+    			if (detaching) detach_dev(div);
+    			destroy_each(each_blocks, detaching);
+    		}
+    	};
+
+    	dispatch_dev("SvelteRegisterBlock", {
+    		block,
+    		id: create_else_block$1.name,
+    		type: "else",
+    		source: "(54:0) {:else}",
+    		ctx
+    	});
+
+    	return block;
+    }
+
+    // (34:0) {#if active}
+    function create_if_block$1(ctx) {
+    	let div;
+    	let div_intro;
+    	let current;
+    	let each_value = Questions;
+    	validate_each_argument(each_value);
+    	let each_blocks = [];
+
+    	for (let i = 0; i < each_value.length; i += 1) {
+    		each_blocks[i] = create_each_block(get_each_context(ctx, each_value, i));
+    	}
+
+    	const out = i => transition_out(each_blocks[i], 1, 1, () => {
+    		each_blocks[i] = null;
+    	});
+
+    	const block = {
+    		c: function create() {
+    			div = element("div");
+
+    			for (let i = 0; i < each_blocks.length; i += 1) {
+    				each_blocks[i].c();
+    			}
+
+    			attr_dev(div, "id", "wheel");
+    			set_style(div, "--width", /*trianglePx*/ ctx[6]);
+    			set_style(div, "--timer", `${/*timer*/ ctx[3]}s`);
+    			set_style(div, "--degFallback", `${/*previousRot*/ ctx[0] + /*rotation*/ ctx[1]}deg`);
+    			attr_dev(div, "class", "svelte-ri2rij");
+    			add_location(div, file$1, 34, 2, 967);
+    		},
+    		m: function mount(target, anchor) {
+    			insert_dev(target, div, anchor);
+
+    			for (let i = 0; i < each_blocks.length; i += 1) {
+    				each_blocks[i].m(div, null);
+    			}
+
+    			current = true;
+    		},
+    		p: function update(new_ctx, dirty) {
+    			ctx = new_ctx;
+
+    			if (dirty & /*degrees, Colors, triangleWidth, triangleHeight*/ 416) {
+    				each_value = Questions;
+    				validate_each_argument(each_value);
+    				let i;
+
+    				for (i = 0; i < each_value.length; i += 1) {
+    					const child_ctx = get_each_context(ctx, each_value, i);
+
+    					if (each_blocks[i]) {
+    						each_blocks[i].p(child_ctx, dirty);
+    						transition_in(each_blocks[i], 1);
+    					} else {
+    						each_blocks[i] = create_each_block(child_ctx);
+    						each_blocks[i].c();
+    						transition_in(each_blocks[i], 1);
+    						each_blocks[i].m(div, null);
+    					}
+    				}
+
+    				group_outros();
+
+    				for (i = each_value.length; i < each_blocks.length; i += 1) {
+    					out(i);
+    				}
+
+    				check_outros();
+    			}
+
+    			if (!current || dirty & /*timer*/ 8) {
+    				set_style(div, "--timer", `${/*timer*/ ctx[3]}s`);
+    			}
+
+    			if (!current || dirty & /*previousRot, rotation*/ 3) {
+    				set_style(div, "--degFallback", `${/*previousRot*/ ctx[0] + /*rotation*/ ctx[1]}deg`);
+    			}
+    		},
+    		i: function intro(local) {
+    			if (current) return;
+
+    			for (let i = 0; i < each_value.length; i += 1) {
+    				transition_in(each_blocks[i]);
+    			}
+
+    			if (!div_intro) {
+    				add_render_callback(() => {
+    					div_intro = create_in_transition(div, /*spin*/ ctx[4], { duration: (/*timer*/ ctx[3] - 1) * 1000 });
+    					div_intro.start();
+    				});
+    			}
+
+    			current = true;
+    		},
+    		o: function outro(local) {
+    			each_blocks = each_blocks.filter(Boolean);
+
+    			for (let i = 0; i < each_blocks.length; i += 1) {
+    				transition_out(each_blocks[i]);
+    			}
+
+    			current = false;
+    		},
+    		d: function destroy(detaching) {
+    			if (detaching) detach_dev(div);
+    			destroy_each(each_blocks, detaching);
+    		}
+    	};
+
+    	dispatch_dev("SvelteRegisterBlock", {
+    		block,
+    		id: create_if_block$1.name,
+    		type: "if",
+    		source: "(34:0) {#if active}",
+    		ctx
+    	});
+
+    	return block;
+    }
+
+    // (63:4) {#each Questions as question, i}
+    function create_each_block_1(ctx) {
+    	let spinningpiece;
+    	let current;
+
+    	spinningpiece = new SpinningPiece({
+    			props: {
+    				idx: /*i*/ ctx[12],
+    				rot: /*degrees*/ ctx[7](/*i*/ ctx[12]),
+    				color: Colors[/*i*/ ctx[12]],
+    				width: `${/*triangleWidth*/ ctx[8]}px`,
+    				height: `${/*triangleHeight*/ ctx[5]}px`
+    			},
+    			$$inline: true
+    		});
+
+    	const block = {
+    		c: function create() {
+    			create_component(spinningpiece.$$.fragment);
+    		},
+    		m: function mount(target, anchor) {
+    			mount_component(spinningpiece, target, anchor);
+    			current = true;
+    		},
+    		p: noop,
+    		i: function intro(local) {
+    			if (current) return;
+    			transition_in(spinningpiece.$$.fragment, local);
+    			current = true;
+    		},
+    		o: function outro(local) {
+    			transition_out(spinningpiece.$$.fragment, local);
+    			current = false;
+    		},
+    		d: function destroy(detaching) {
+    			destroy_component(spinningpiece, detaching);
+    		}
+    	};
+
+    	dispatch_dev("SvelteRegisterBlock", {
+    		block,
+    		id: create_each_block_1.name,
+    		type: "each",
+    		source: "(63:4) {#each Questions as question, i}",
+    		ctx
+    	});
+
+    	return block;
+    }
+
+    // (44:4) {#each Questions as question, i}
     function create_each_block(ctx) {
     	let spinningpiece;
     	let current;
 
     	spinningpiece = new SpinningPiece({
     			props: {
-    				question: /*question*/ ctx[9],
-    				idx: /*i*/ ctx[11],
-    				rot: /*degrees*/ ctx[6](/*i*/ ctx[11]),
-    				color: Colors[/*i*/ ctx[11]],
-    				width: `${/*triangleWidth*/ ctx[7]}px`,
-    				height: `${/*triangleHeight*/ ctx[4]}px`
+    				idx: /*i*/ ctx[12],
+    				rot: /*degrees*/ ctx[7](/*i*/ ctx[12]),
+    				color: Colors[/*i*/ ctx[12]],
+    				width: `${/*triangleWidth*/ ctx[8]}px`,
+    				height: `${/*triangleHeight*/ ctx[5]}px`
     			},
     			$$inline: true
     		});
@@ -906,7 +1367,7 @@ var app = (function () {
     		block,
     		id: create_each_block.name,
     		type: "each",
-    		source: "(30:2) {#each Questions as question, i}",
+    		source: "(44:4) {#each Questions as question, i}",
     		ctx
     	});
 
@@ -914,115 +1375,73 @@ var app = (function () {
     }
 
     function create_fragment$1(ctx) {
-    	let div;
-    	let div_class_value;
+    	let current_block_type_index;
+    	let if_block;
+    	let if_block_anchor;
     	let current;
-    	let each_value = Questions;
-    	validate_each_argument(each_value);
-    	let each_blocks = [];
+    	const if_block_creators = [create_if_block$1, create_else_block$1];
+    	const if_blocks = [];
 
-    	for (let i = 0; i < each_value.length; i += 1) {
-    		each_blocks[i] = create_each_block(get_each_context(ctx, each_value, i));
+    	function select_block_type(ctx, dirty) {
+    		if (/*active*/ ctx[2]) return 0;
+    		return 1;
     	}
 
-    	const out = i => transition_out(each_blocks[i], 1, 1, () => {
-    		each_blocks[i] = null;
-    	});
+    	current_block_type_index = select_block_type(ctx);
+    	if_block = if_blocks[current_block_type_index] = if_block_creators[current_block_type_index](ctx);
 
     	const block = {
     		c: function create() {
-    			div = element("div");
-
-    			for (let i = 0; i < each_blocks.length; i += 1) {
-    				each_blocks[i].c();
-    			}
-
-    			attr_dev(div, "id", "wheel");
-    			attr_dev(div, "class", div_class_value = "" + (null_to_empty(/*active*/ ctx[2] ? "animation" : "") + " svelte-1yeecok"));
-    			set_style(div, "--width", /*trianglePx*/ ctx[5]);
-    			set_style(div, "--timer", `${/*timer*/ ctx[3]}s`);
-    			set_style(div, "--deg", `${/*previousRot*/ ctx[0] + /*rotation*/ ctx[1] + 2}deg`);
-    			set_style(div, "--degFallback", `${/*previousRot*/ ctx[0] + /*rotation*/ ctx[1]}deg`);
-    			add_location(div, file$1, 20, 0, 609);
+    			if_block.c();
+    			if_block_anchor = empty();
     		},
     		l: function claim(nodes) {
     			throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
     		},
     		m: function mount(target, anchor) {
-    			insert_dev(target, div, anchor);
-
-    			for (let i = 0; i < each_blocks.length; i += 1) {
-    				each_blocks[i].m(div, null);
-    			}
-
+    			if_blocks[current_block_type_index].m(target, anchor);
+    			insert_dev(target, if_block_anchor, anchor);
     			current = true;
     		},
     		p: function update(ctx, [dirty]) {
-    			if (dirty & /*Questions, degrees, Colors, triangleWidth, triangleHeight*/ 208) {
-    				each_value = Questions;
-    				validate_each_argument(each_value);
-    				let i;
+    			let previous_block_index = current_block_type_index;
+    			current_block_type_index = select_block_type(ctx);
 
-    				for (i = 0; i < each_value.length; i += 1) {
-    					const child_ctx = get_each_context(ctx, each_value, i);
-
-    					if (each_blocks[i]) {
-    						each_blocks[i].p(child_ctx, dirty);
-    						transition_in(each_blocks[i], 1);
-    					} else {
-    						each_blocks[i] = create_each_block(child_ctx);
-    						each_blocks[i].c();
-    						transition_in(each_blocks[i], 1);
-    						each_blocks[i].m(div, null);
-    					}
-    				}
-
+    			if (current_block_type_index === previous_block_index) {
+    				if_blocks[current_block_type_index].p(ctx, dirty);
+    			} else {
     				group_outros();
 
-    				for (i = each_value.length; i < each_blocks.length; i += 1) {
-    					out(i);
-    				}
+    				transition_out(if_blocks[previous_block_index], 1, 1, () => {
+    					if_blocks[previous_block_index] = null;
+    				});
 
     				check_outros();
-    			}
+    				if_block = if_blocks[current_block_type_index];
 
-    			if (!current || dirty & /*active*/ 4 && div_class_value !== (div_class_value = "" + (null_to_empty(/*active*/ ctx[2] ? "animation" : "") + " svelte-1yeecok"))) {
-    				attr_dev(div, "class", div_class_value);
-    			}
+    				if (!if_block) {
+    					if_block = if_blocks[current_block_type_index] = if_block_creators[current_block_type_index](ctx);
+    					if_block.c();
+    				} else {
+    					if_block.p(ctx, dirty);
+    				}
 
-    			if (!current || dirty & /*timer*/ 8) {
-    				set_style(div, "--timer", `${/*timer*/ ctx[3]}s`);
-    			}
-
-    			if (!current || dirty & /*previousRot, rotation*/ 3) {
-    				set_style(div, "--deg", `${/*previousRot*/ ctx[0] + /*rotation*/ ctx[1] + 2}deg`);
-    			}
-
-    			if (!current || dirty & /*previousRot, rotation*/ 3) {
-    				set_style(div, "--degFallback", `${/*previousRot*/ ctx[0] + /*rotation*/ ctx[1]}deg`);
+    				transition_in(if_block, 1);
+    				if_block.m(if_block_anchor.parentNode, if_block_anchor);
     			}
     		},
     		i: function intro(local) {
     			if (current) return;
-
-    			for (let i = 0; i < each_value.length; i += 1) {
-    				transition_in(each_blocks[i]);
-    			}
-
+    			transition_in(if_block);
     			current = true;
     		},
     		o: function outro(local) {
-    			each_blocks = each_blocks.filter(Boolean);
-
-    			for (let i = 0; i < each_blocks.length; i += 1) {
-    				transition_out(each_blocks[i]);
-    			}
-
+    			transition_out(if_block);
     			current = false;
     		},
     		d: function destroy(detaching) {
-    			if (detaching) detach_dev(div);
-    			destroy_each(each_blocks, detaching);
+    			if_blocks[current_block_type_index].d(detaching);
+    			if (detaching) detach_dev(if_block_anchor);
     		}
     	};
 
@@ -1045,6 +1464,16 @@ var app = (function () {
     	let { active } = $$props;
     	let { timer } = $$props;
 
+    	// animations
+    	const spin = (node, { duration }) => {
+    		setTimeout(() => console.log("done"), 2000);
+
+    		return {
+    			duration,
+    			css: t => `transform: rotate(${elasticInOut(t) * (rotation + previousRot)}deg);`
+    		};
+    	};
+
     	// local vars
     	const triangleHeight = Math.min(window.innerWidth, window.innerHeight) / 3;
 
@@ -1055,7 +1484,7 @@ var app = (function () {
     	const writable_props = ["previousRot", "rotation", "active", "timer"];
 
     	Object.keys($$props).forEach(key => {
-    		if (!~writable_props.indexOf(key) && key.slice(0, 2) !== "$$") console.warn(`<RotatingWheel> was created with unknown prop '${key}'`);
+    		if (!~writable_props.indexOf(key) && key.slice(0, 2) !== "$$") console_1$1.warn(`<RotatingWheel> was created with unknown prop '${key}'`);
     	});
 
     	$$self.$$set = $$props => {
@@ -1069,10 +1498,15 @@ var app = (function () {
     		SpinningPiece,
     		Colors,
     		Questions,
+    		elasticIn,
+    		elasticInOut,
+    		elasticOut,
+    		fade,
     		previousRot,
     		rotation,
     		active,
     		timer,
+    		spin,
     		triangleHeight,
     		trianglePx,
     		triangleDegree,
@@ -1096,6 +1530,7 @@ var app = (function () {
     		rotation,
     		active,
     		timer,
+    		spin,
     		triangleHeight,
     		trianglePx,
     		degrees,
@@ -1125,19 +1560,19 @@ var app = (function () {
     		const props = options.props || {};
 
     		if (/*previousRot*/ ctx[0] === undefined && !("previousRot" in props)) {
-    			console.warn("<RotatingWheel> was created without expected prop 'previousRot'");
+    			console_1$1.warn("<RotatingWheel> was created without expected prop 'previousRot'");
     		}
 
     		if (/*rotation*/ ctx[1] === undefined && !("rotation" in props)) {
-    			console.warn("<RotatingWheel> was created without expected prop 'rotation'");
+    			console_1$1.warn("<RotatingWheel> was created without expected prop 'rotation'");
     		}
 
     		if (/*active*/ ctx[2] === undefined && !("active" in props)) {
-    			console.warn("<RotatingWheel> was created without expected prop 'active'");
+    			console_1$1.warn("<RotatingWheel> was created without expected prop 'active'");
     		}
 
     		if (/*timer*/ ctx[3] === undefined && !("timer" in props)) {
-    			console.warn("<RotatingWheel> was created without expected prop 'timer'");
+    			console_1$1.warn("<RotatingWheel> was created without expected prop 'timer'");
     		}
     	}
 
@@ -1174,29 +1609,6 @@ var app = (function () {
     	}
     }
 
-    function cubicInOut(t) {
-        return t < 0.5 ? 4.0 * t * t * t : 0.5 * Math.pow(2.0 * t - 2.0, 3.0) + 1.0;
-    }
-    function cubicOut(t) {
-        const f = t - 1.0;
-        return f * f * f + 1.0;
-    }
-
-    function fly(node, { delay = 0, duration = 400, easing = cubicOut, x = 0, y = 0, opacity = 0 } = {}) {
-        const style = getComputedStyle(node);
-        const target_opacity = +style.opacity;
-        const transform = style.transform === 'none' ? '' : style.transform;
-        const od = target_opacity * (1 - opacity);
-        return {
-            delay,
-            duration,
-            easing,
-            css: (t, u) => `
-			transform: ${transform} translate(${(1 - t) * x}px, ${(1 - t) * y}px);
-			opacity: ${target_opacity - (od * u)}`
-        };
-    }
-
     function fadeScale (
       node, { delay = 0, duration = 200, easing = x => x, baseScale = 0 }
     ) {
@@ -1220,8 +1632,9 @@ var app = (function () {
     const { console: console_1 } = globals;
     const file = "src\\App.svelte";
 
-    // (63:2) {:else}
+    // (65:2) {:else}
     function create_else_block(ctx) {
+    	let div2;
     	let div0;
     	let div0_class_value;
     	let t0;
@@ -1229,89 +1642,100 @@ var app = (function () {
     	let t1;
     	let div1;
 
-    	let t2_value = (/*spinning*/ ctx[2]
+    	let t2_value = (/*spinning*/ ctx[3]
     	? "Snurre..."
     	: "Still mæ et spørsmål!") + "";
 
     	let t2;
     	let div1_class_value;
+    	let div2_intro;
+    	let div2_outro;
     	let current;
     	let mounted;
     	let dispose;
 
     	rotatingwheel = new RotatingWheel({
     			props: {
-    				active: /*spinning*/ ctx[2],
-    				previousRot: /*prevRot*/ ctx[1],
-    				rotation: /*rotationDegrees*/ ctx[0],
-    				timer: /*animationTimer*/ ctx[5],
-    				landingQuestion: /*landingQuestion*/ ctx[3]
+    				active: /*spinning*/ ctx[3],
+    				previousRot: /*prevRot*/ ctx[2],
+    				rotation: /*rotationDegrees*/ ctx[1],
+    				timer: /*animationTimer*/ ctx[5]
     			},
     			$$inline: true
     		});
 
     	const block = {
     		c: function create() {
+    			div2 = element("div");
     			div0 = element("div");
     			t0 = space();
     			create_component(rotatingwheel.$$.fragment);
     			t1 = space();
     			div1 = element("div");
     			t2 = text(t2_value);
-    			attr_dev(div0, "class", div0_class_value = "" + (null_to_empty(`ticker ${/*spinning*/ ctx[2] && "spinning-ticker"}`) + " svelte-sqiaha"));
-    			add_location(div0, file, 63, 4, 1755);
-    			attr_dev(div1, "class", div1_class_value = "" + (null_to_empty(`spin-button ${/*spinning*/ ctx[2] && "disabled"}`) + " svelte-sqiaha"));
-    			add_location(div1, file, 74, 4, 2033);
+    			attr_dev(div0, "class", div0_class_value = "" + (null_to_empty(`ticker ${/*spinning*/ ctx[3] && "spinning-ticker"}`) + " svelte-1qv82m8"));
+    			add_location(div0, file, 66, 6, 2076);
+    			attr_dev(div1, "class", div1_class_value = "" + (null_to_empty(`spin-button ${/*spinning*/ ctx[3] && "disabled"}`) + " svelte-1qv82m8"));
+    			add_location(div1, file, 73, 6, 2299);
+    			attr_dev(div2, "class", "svelte-1qv82m8");
+    			add_location(div2, file, 65, 4, 2010);
     		},
     		m: function mount(target, anchor) {
-    			insert_dev(target, div0, anchor);
-    			insert_dev(target, t0, anchor);
-    			mount_component(rotatingwheel, target, anchor);
-    			insert_dev(target, t1, anchor);
-    			insert_dev(target, div1, anchor);
+    			insert_dev(target, div2, anchor);
+    			append_dev(div2, div0);
+    			append_dev(div2, t0);
+    			mount_component(rotatingwheel, div2, null);
+    			append_dev(div2, t1);
+    			append_dev(div2, div1);
     			append_dev(div1, t2);
     			current = true;
 
     			if (!mounted) {
-    				dispose = listen_dev(div1, "click", /*click_handler*/ ctx[8], false, false, false);
+    				dispose = listen_dev(div1, "click", /*click_handler_1*/ ctx[9], false, false, false);
     				mounted = true;
     			}
     		},
     		p: function update(ctx, dirty) {
-    			if (!current || dirty & /*spinning*/ 4 && div0_class_value !== (div0_class_value = "" + (null_to_empty(`ticker ${/*spinning*/ ctx[2] && "spinning-ticker"}`) + " svelte-sqiaha"))) {
+    			if (!current || dirty & /*spinning*/ 8 && div0_class_value !== (div0_class_value = "" + (null_to_empty(`ticker ${/*spinning*/ ctx[3] && "spinning-ticker"}`) + " svelte-1qv82m8"))) {
     				attr_dev(div0, "class", div0_class_value);
     			}
 
     			const rotatingwheel_changes = {};
-    			if (dirty & /*spinning*/ 4) rotatingwheel_changes.active = /*spinning*/ ctx[2];
-    			if (dirty & /*prevRot*/ 2) rotatingwheel_changes.previousRot = /*prevRot*/ ctx[1];
-    			if (dirty & /*rotationDegrees*/ 1) rotatingwheel_changes.rotation = /*rotationDegrees*/ ctx[0];
-    			if (dirty & /*landingQuestion*/ 8) rotatingwheel_changes.landingQuestion = /*landingQuestion*/ ctx[3];
+    			if (dirty & /*spinning*/ 8) rotatingwheel_changes.active = /*spinning*/ ctx[3];
+    			if (dirty & /*prevRot*/ 4) rotatingwheel_changes.previousRot = /*prevRot*/ ctx[2];
+    			if (dirty & /*rotationDegrees*/ 2) rotatingwheel_changes.rotation = /*rotationDegrees*/ ctx[1];
     			rotatingwheel.$set(rotatingwheel_changes);
 
-    			if ((!current || dirty & /*spinning*/ 4) && t2_value !== (t2_value = (/*spinning*/ ctx[2]
+    			if ((!current || dirty & /*spinning*/ 8) && t2_value !== (t2_value = (/*spinning*/ ctx[3]
     			? "Snurre..."
     			: "Still mæ et spørsmål!") + "")) set_data_dev(t2, t2_value);
 
-    			if (!current || dirty & /*spinning*/ 4 && div1_class_value !== (div1_class_value = "" + (null_to_empty(`spin-button ${/*spinning*/ ctx[2] && "disabled"}`) + " svelte-sqiaha"))) {
+    			if (!current || dirty & /*spinning*/ 8 && div1_class_value !== (div1_class_value = "" + (null_to_empty(`spin-button ${/*spinning*/ ctx[3] && "disabled"}`) + " svelte-1qv82m8"))) {
     				attr_dev(div1, "class", div1_class_value);
     			}
     		},
     		i: function intro(local) {
     			if (current) return;
     			transition_in(rotatingwheel.$$.fragment, local);
+
+    			add_render_callback(() => {
+    				if (div2_outro) div2_outro.end(1);
+    				if (!div2_intro) div2_intro = create_in_transition(div2, fade, { duration: 200 });
+    				div2_intro.start();
+    			});
+
     			current = true;
     		},
     		o: function outro(local) {
     			transition_out(rotatingwheel.$$.fragment, local);
+    			if (div2_intro) div2_intro.invalidate();
+    			div2_outro = create_out_transition(div2, fade, { duration: 200 });
     			current = false;
     		},
     		d: function destroy(detaching) {
-    			if (detaching) detach_dev(div0);
-    			if (detaching) detach_dev(t0);
-    			destroy_component(rotatingwheel, detaching);
-    			if (detaching) detach_dev(t1);
-    			if (detaching) detach_dev(div1);
+    			if (detaching) detach_dev(div2);
+    			destroy_component(rotatingwheel);
+    			if (detaching && div2_outro) div2_outro.end();
     			mounted = false;
     			dispose();
     		}
@@ -1321,73 +1745,115 @@ var app = (function () {
     		block,
     		id: create_else_block.name,
     		type: "else",
-    		source: "(63:2) {:else}",
+    		source: "(65:2) {:else}",
     		ctx
     	});
 
     	return block;
     }
 
-    // (47:2) {#if (questionBoxOpen)}
+    // (48:2) {#if (questionBoxOpen)}
     function create_if_block(ctx) {
-    	let div;
-    	let div_transition;
+    	let t0_value = console.log(Colors[/*landingQuestion*/ ctx[4]]) + "";
+    	let t0;
+    	let t1;
+    	let div1;
+    	let div0;
+    	let t3;
+    	let p;
+    	let t4_value = Questions[/*landingQuestion*/ ctx[4]].text + "";
+    	let t4;
+    	let div1_transition;
     	let current;
+    	let mounted;
+    	let dispose;
 
     	const block = {
     		c: function create() {
-    			div = element("div");
-    			div.textContent = "ok\r\n      ok\r\n      ok\r\n      ok\r\n      ok";
-    			attr_dev(div, "class", "question-box svelte-sqiaha");
-    			add_location(div, file, 47, 4, 1496);
+    			t0 = text(t0_value);
+    			t1 = space();
+    			div1 = element("div");
+    			div0 = element("div");
+    			div0.textContent = "✖";
+    			t3 = space();
+    			p = element("p");
+    			t4 = text(t4_value);
+    			attr_dev(div0, "class", "question-box-closer svelte-1qv82m8");
+    			add_location(div0, file, 59, 6, 1827);
+    			attr_dev(p, "class", "svelte-1qv82m8");
+    			add_location(p, file, 62, 6, 1941);
+    			attr_dev(div1, "class", "question-box svelte-1qv82m8");
+    			set_style(div1, "background-color", Colors[/*landingQuestion*/ ctx[4]]);
+    			add_location(div1, file, 49, 4, 1584);
     		},
     		m: function mount(target, anchor) {
-    			insert_dev(target, div, anchor);
+    			insert_dev(target, t0, anchor);
+    			insert_dev(target, t1, anchor);
+    			insert_dev(target, div1, anchor);
+    			append_dev(div1, div0);
+    			append_dev(div1, t3);
+    			append_dev(div1, p);
+    			append_dev(p, t4);
     			current = true;
+
+    			if (!mounted) {
+    				dispose = listen_dev(div0, "click", /*click_handler*/ ctx[8], false, false, false);
+    				mounted = true;
+    			}
     		},
     		p: function update(new_ctx, dirty) {
     			ctx = new_ctx;
+    			if ((!current || dirty & /*landingQuestion*/ 16) && t0_value !== (t0_value = console.log(Colors[/*landingQuestion*/ ctx[4]]) + "")) set_data_dev(t0, t0_value);
+    			if ((!current || dirty & /*landingQuestion*/ 16) && t4_value !== (t4_value = Questions[/*landingQuestion*/ ctx[4]].text + "")) set_data_dev(t4, t4_value);
+
+    			if (!current || dirty & /*landingQuestion*/ 16) {
+    				set_style(div1, "background-color", Colors[/*landingQuestion*/ ctx[4]]);
+    			}
     		},
     		i: function intro(local) {
     			if (current) return;
 
     			add_render_callback(() => {
-    				if (!div_transition) div_transition = create_bidirectional_transition(
-    					div,
+    				if (!div1_transition) div1_transition = create_bidirectional_transition(
+    					div1,
     					fadeScale,
     					{
-    						delay: 500,
-    						duration: 1000,
+    						delay: 0,
+    						duration: 500,
     						easing: cubicInOut,
-    						baseScale: 0.1
+    						baseScale: 0.5
     					},
     					true
     				);
 
-    				div_transition.run(1);
+    				div1_transition.run(1);
     			});
 
     			current = true;
     		},
     		o: function outro(local) {
-    			if (!div_transition) div_transition = create_bidirectional_transition(
-    				div,
+    			if (!div1_transition) div1_transition = create_bidirectional_transition(
+    				div1,
     				fadeScale,
     				{
-    					delay: 500,
-    					duration: 1000,
+    					delay: 0,
+    					duration: 500,
     					easing: cubicInOut,
-    					baseScale: 0.1
+    					baseScale: 0.5
     				},
     				false
     			);
 
-    			div_transition.run(0);
+    			div1_transition.run(0);
     			current = false;
     		},
     		d: function destroy(detaching) {
-    			if (detaching) detach_dev(div);
-    			if (detaching && div_transition) div_transition.end();
+    			if (detaching) detach_dev(t0);
+    			if (detaching) detach_dev(t1);
+    			if (detaching) detach_dev(div1);
+    			if (detaching && div1_transition) div1_transition.end();
+    			mounted = false;
+    			dispose();
     		}
     	};
 
@@ -1395,7 +1861,7 @@ var app = (function () {
     		block,
     		id: create_if_block.name,
     		type: "if",
-    		source: "(47:2) {#if (questionBoxOpen)}",
+    		source: "(48:2) {#if (questionBoxOpen)}",
     		ctx
     	});
 
@@ -1415,7 +1881,7 @@ var app = (function () {
     	const if_blocks = [];
 
     	function select_block_type(ctx, dirty) {
-    		if (/*questionBoxOpen*/ ctx[4]) return 0;
+    		if (/*questionBoxOpen*/ ctx[0]) return 0;
     		return 1;
     	}
 
@@ -1430,14 +1896,16 @@ var app = (function () {
     			link = element("link");
     			t1 = space();
     			if_block.c();
-    			attr_dev(div, "class", "bg-image svelte-sqiaha");
-    			add_location(div, file, 40, 0, 1244);
+    			attr_dev(div, "class", "bg-image svelte-1qv82m8");
+    			add_location(div, file, 41, 0, 1283);
     			attr_dev(link, "href", "//maxcdn.bootstrapcdn.com/font-awesome/4.1.0/css/font-awesome.min.css");
     			attr_dev(link, "rel", "stylesheet");
-    			add_location(link, file, 45, 2, 1363);
-    			set_style(main, "--timer", /*animationTimer*/ ctx[5] + "s");
+    			attr_dev(link, "class", "svelte-1qv82m8");
+    			add_location(link, file, 46, 2, 1407);
+    			set_style(main, "--timer", /*animationTimer*/ ctx[5] + 0.5 + "s");
     			set_style(main, "--triangleHeight", `${/*triangleHeight*/ ctx[7]}px`);
-    			add_location(main, file, 41, 0, 1269);
+    			attr_dev(main, "class", "svelte-1qv82m8");
+    			add_location(main, file, 42, 0, 1308);
     		},
     		l: function claim(nodes) {
     			throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
@@ -1452,7 +1920,31 @@ var app = (function () {
     			current = true;
     		},
     		p: function update(ctx, [dirty]) {
-    			if_block.p(ctx, dirty);
+    			let previous_block_index = current_block_type_index;
+    			current_block_type_index = select_block_type(ctx);
+
+    			if (current_block_type_index === previous_block_index) {
+    				if_blocks[current_block_type_index].p(ctx, dirty);
+    			} else {
+    				group_outros();
+
+    				transition_out(if_blocks[previous_block_index], 1, 1, () => {
+    					if_blocks[previous_block_index] = null;
+    				});
+
+    				check_outros();
+    				if_block = if_blocks[current_block_type_index];
+
+    				if (!if_block) {
+    					if_block = if_blocks[current_block_type_index] = if_block_creators[current_block_type_index](ctx);
+    					if_block.c();
+    				} else {
+    					if_block.p(ctx, dirty);
+    				}
+
+    				transition_in(if_block, 1);
+    				if_block.m(main, null);
+    			}
     		},
     		i: function intro(local) {
     			if (current) return;
@@ -1485,8 +1977,8 @@ var app = (function () {
     function instance($$self, $$props, $$invalidate) {
     	let { $$slots: slots = {}, $$scope } = $$props;
     	validate_slots("App", slots, []);
-    	let questionBoxOpen = false;
-    	let animationTimer = 0.5;
+    	let questionBoxOpen = true;
+    	let animationTimer = 2;
     	let rotationDegrees = 0;
     	let prevRot = 0;
     	const random = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
@@ -1495,40 +1987,43 @@ var app = (function () {
 
     	const onSpin = () => {
     		// animationTimer = random(2, 6);
-    		$$invalidate(2, spinning = true);
+    		$$invalidate(3, spinning = true);
 
     		const pieceDeg = 360 / Questions.length;
-    		$$invalidate(0, rotationDegrees = Math.floor(random(5 * 360, 10 * 360)));
-    		$$invalidate(1, prevRot = rotationDegrees);
+    		$$invalidate(1, rotationDegrees = Math.floor(random(5 * 360, 10 * 360)));
+    		$$invalidate(2, prevRot = rotationDegrees);
     		const normRot = 360 - (prevRot + rotationDegrees) % 360;
-    		$$invalidate(3, landingQuestion = Math.ceil(normRot / pieceDeg) * pieceDeg / pieceDeg);
+    		$$invalidate(4, landingQuestion = Math.ceil(normRot / pieceDeg) * pieceDeg / pieceDeg - 1);
     		console.log("question idx", landingQuestion);
 
     		setTimeout(
     			() => {
-    				$$invalidate(2, spinning = false); // questionBoxOpen = true;
+    				$$invalidate(3, spinning = false);
+    				$$invalidate(0, questionBoxOpen = true);
     			},
     			animationTimer * 1000
-    		); // questionBoxOpen = true;
+    		);
     	};
 
     	const triangleHeight = Math.min(window.innerWidth, window.innerHeight) / 3;
-    	console.log("height?!?!?", triangleHeight);
     	const writable_props = [];
 
     	Object.keys($$props).forEach(key => {
     		if (!~writable_props.indexOf(key) && key.slice(0, 2) !== "$$") console_1.warn(`<App> was created with unknown prop '${key}'`);
     	});
 
-    	const click_handler = () => !spinning && onSpin();
+    	const click_handler = () => $$invalidate(0, questionBoxOpen = false);
+    	const click_handler_1 = () => !spinning && onSpin();
 
     	$$self.$capture_state = () => ({
     		Questions,
     		RotatingWheel,
     		SpinningPiece,
     		fly,
+    		fade,
     		cubicInOut,
     		fadeScale,
+    		Colors,
     		questionBoxOpen,
     		animationTimer,
     		rotationDegrees,
@@ -1541,12 +2036,12 @@ var app = (function () {
     	});
 
     	$$self.$inject_state = $$props => {
-    		if ("questionBoxOpen" in $$props) $$invalidate(4, questionBoxOpen = $$props.questionBoxOpen);
+    		if ("questionBoxOpen" in $$props) $$invalidate(0, questionBoxOpen = $$props.questionBoxOpen);
     		if ("animationTimer" in $$props) $$invalidate(5, animationTimer = $$props.animationTimer);
-    		if ("rotationDegrees" in $$props) $$invalidate(0, rotationDegrees = $$props.rotationDegrees);
-    		if ("prevRot" in $$props) $$invalidate(1, prevRot = $$props.prevRot);
-    		if ("spinning" in $$props) $$invalidate(2, spinning = $$props.spinning);
-    		if ("landingQuestion" in $$props) $$invalidate(3, landingQuestion = $$props.landingQuestion);
+    		if ("rotationDegrees" in $$props) $$invalidate(1, rotationDegrees = $$props.rotationDegrees);
+    		if ("prevRot" in $$props) $$invalidate(2, prevRot = $$props.prevRot);
+    		if ("spinning" in $$props) $$invalidate(3, spinning = $$props.spinning);
+    		if ("landingQuestion" in $$props) $$invalidate(4, landingQuestion = $$props.landingQuestion);
     	};
 
     	if ($$props && "$$inject" in $$props) {
@@ -1554,15 +2049,16 @@ var app = (function () {
     	}
 
     	return [
+    		questionBoxOpen,
     		rotationDegrees,
     		prevRot,
     		spinning,
     		landingQuestion,
-    		questionBoxOpen,
     		animationTimer,
     		onSpin,
     		triangleHeight,
-    		click_handler
+    		click_handler,
+    		click_handler_1
     	];
     }
 
