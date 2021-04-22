@@ -6,8 +6,8 @@ import { Questions } from './consts/questions';
 // exports
 export let previousRot;
 export let rotation;
-export let timer;
 export let active;
+export let timer;
 
 // local vars
 const triangleHeight = Math.min(window.innerWidth, window.innerHeight) / 3
@@ -32,7 +32,7 @@ const triangleWidth = Math.round(Math.tan(triangleDegree / 2 * Math.PI / 180) * 
       question={question}
       idx={i}
       rot={degrees(i)}
-      color={Colors[i % 13]}
+      color={Colors[i]}
       width={`${triangleWidth}px`}
       height={`${triangleHeight}px`}
     />
