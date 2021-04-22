@@ -16,7 +16,6 @@ const trianglePx = `${triangleHeight}px`;
 const triangleDegree = 360 / Questions.length;
 const degrees = (i) => `${(triangleDegree) * i}deg`;
 const triangleWidth = Math.round(Math.tan(triangleDegree / 2 * Math.PI / 180) * triangleHeight, 2);
-
 </script>
 
 <div

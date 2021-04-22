@@ -41,8 +41,8 @@
     border-style: solid;
     border-width: var(--h) var(--w) 0 var(--w);
     border-color: var(--bg) transparent transparent transparent;
-    /* border-radius: var(--h)/calc(var(--h)/3.3); */
-    border-radius: 50% 50% 50% 50% / 20% 20% 80% 80%;
+    border-radius: var(--h)/calc(var(--h)/3.3);
+    /* border-radius: 50% 50% 50% 50% / 20% 20% 80% 80%; */
     /* transition: all 1s cubic-bezier(0, 0.99, 0.44, 0.99); */
   }
   .piece-content {
