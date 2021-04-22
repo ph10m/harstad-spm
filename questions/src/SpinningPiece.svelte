@@ -58,7 +58,7 @@
     transition: font-size .2s linear;
   }
   .hover {
-    z-index: 100;
+    /* z-index: 100; */
     border-color: lightgray transparent transparent transparent;
   }
 </style>

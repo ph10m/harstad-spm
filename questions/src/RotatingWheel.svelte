@@ -45,9 +45,8 @@ const triangleWidth = Math.round(Math.tan(triangleDegree / 2 * Math.PI / 180) * 
   transform: rotate(var(--degFallback));
   position: fixed;
   bottom: 90%;
-  right: 50%;
   left: 50%;
-  margin-left: calc(-0.5 * trianglePx);
+  margin-left: calc(-0.5 * var(--width));
   transform-origin: calc(var(--width)/2) var(--width) 0px;
 }
 
