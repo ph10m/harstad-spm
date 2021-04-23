@@ -1,52 +1,48 @@
 <script>
   import { Questions } from './consts/questions';
   import RotatingWheel from './RotatingWheel.svelte';
-  import SpinningPiece from './SpinningPiece.svelte'
-  import { fly } from 'svelte/transition';
   import { fade } from 'svelte/transition';
   import { cubicInOut } from 'svelte/easing';
-import fadeScale from './animations/fadeScale';
-import { Colors } from './consts/colors';
+  import fadeScale from './animations/fadeScale';
+  import { Colors } from './consts/colors';
 
 
-  let questionBoxOpen = true;
-
-  let animationTimer = 2;
+  let questionBoxOpen = false;
   let rotationDegrees = 0;
-  let prevRot = 0;
 
   const random = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
 
+  const timerDelay = 1;
+  let animationTimer = 3;
   let spinning = false;
   let landingQuestion = 0;
   const onSpin = () => {
-    // animationTimer = random(2, 6);
+    animationTimer = random(4, 6);
     spinning = true;
 
     const pieceDeg = 360 / Questions.length;
     rotationDegrees = Math.floor(random(5*360, 10*360));
-    prevRot = rotationDegrees;
 
-    const normRot = 360 - (prevRot + rotationDegrees) % 360;
+    const normRot = 360 - (rotationDegrees % 360);
     landingQuestion = (Math.ceil(normRot / pieceDeg) * pieceDeg) / pieceDeg - 1;
     console.log('question idx', landingQuestion)
 
-    setTimeout(() => {
-      spinning = false;
-      questionBoxOpen = true;
-    }, animationTimer * 1000)
-  }  
-  const triangleHeight = Math.min(window.innerWidth, window.innerHeight) / 3;
+    setTimeout(() => questionBoxOpen = true, animationTimer * 1000);
+    setTimeout(() => spinning = false, (timerDelay + animationTimer) * 1000);
+  }
+  const onOpenQuestion = () => {
+    questionBoxOpen = false;
+  }
+  const triangleHeight = Math.min(window.innerWidth, window.innerHeight) / 4;
 </script>
 
 <div class='bg-image'/>
 <main style='
---timer: {animationTimer + .5}s;
+--timer: {animationTimer + timerDelay}s;
 --triangleHeight: {`${triangleHeight}px`};
 '>
   <link href="//maxcdn.bootstrapcdn.com/font-awesome/4.1.0/css/font-awesome.min.css" rel="stylesheet">
   {#if (questionBoxOpen)}
-    {console.log(Colors[landingQuestion])}
     <div
       class='question-box'
       style="background-color: {Colors[landingQuestion]}"
@@ -57,7 +53,7 @@ import { Colors } from './consts/colors';
         baseScale: 0.5
       }}
     >
-      <div class='question-box-closer' on:click={() => questionBoxOpen = false}>
+      <div class='question-box-closer' on:click={onOpenQuestion}>
         &#x2716;
       </div>
       <p>{Questions[landingQuestion].text}</p>
@@ -67,7 +63,6 @@ import { Colors } from './consts/colors';
       <div class={`ticker ${spinning && 'spinning-ticker'}`} />
       <RotatingWheel
         active={spinning}
-        previousRot={prevRot}
         rotation={rotationDegrees}
         timer={animationTimer}
       />
@@ -167,14 +162,14 @@ import { Colors } from './consts/colors';
   z-index: 1000;
 }
 .spinning-ticker {
-  animation: tick var(--timer) cubic-bezier(0, 0.99, 0.44, 0.99);
+  animation: tick var(--timer) cubic-bezier(0, 0.99, 0.44, 0.99) infinite;
   transition: all .5s ease;
 }
 @keyframes tick {
   0% { transform: rotate(-22deg) }
-  12% { transform: rotate(-30deg) }
-  17% { transform: rotate(-30deg) }
-  20% { transform: rotate(-50deg) }
+  3% { transform: rotate(-26deg) }
+  7% { transform: rotate(-22deg) }
+  10% { transform: rotate(-27deg) }
   23% { transform: rotate(-40deg) }
   25% { transform: rotate(-32deg) }
   27% { transform: rotate(-45deg) }

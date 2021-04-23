@@ -8,7 +8,6 @@ import { fade } from 'svelte/transition';
 
 
 // exports
-export let previousRot;
 export let rotation;
 export let active;
 export let timer;
@@ -18,12 +17,12 @@ const spin = (node, { duration }) => {
   setTimeout(() => console.log('done'), 2000)
   return {
     duration,
-    css: t => `transform: rotate(${elasticInOut(t) * (rotation + previousRot)}deg);`
+    css: t => `transform: rotate(${elasticInOut(t) * rotation}deg);`
   }
 }
 
 // local vars
-const triangleHeight = Math.min(window.innerWidth, window.innerHeight) / 3
+const triangleHeight = Math.min(window.innerWidth, window.innerHeight) / 4
 const trianglePx = `${triangleHeight}px`;
 
 const triangleDegree = 360 / Questions.length;
@@ -34,14 +33,11 @@ const triangleWidth = Math.round(Math.tan(triangleDegree / 2 * Math.PI / 180) * 
 {#if active}
   <div
     id="wheel"
-    in:spin={{duration: (timer - 1) * 1000}}
-    style='
-        --width: {trianglePx};
-        --timer: {`${timer}s`};
-        --degFallback: {`${previousRot + rotation}deg`};
-      '
+    in:spin={{duration: (timer + 0.5) * 1000}}
+    out:fade={{duration: 200}}
+    style='--width: {trianglePx};'
   >
-    {#each Questions as question, i}
+    {#each Questions as _, i}
       <SpinningPiece
         idx={i}
         rot={degrees(i)}
@@ -52,15 +48,12 @@ const triangleWidth = Math.round(Math.tan(triangleDegree / 2 * Math.PI / 180) * 
     {/each} 
   </div>
 {:else}
-  <div
-    id='wheel'
+  <div id='wheel'
     style='
-        --width: {trianglePx};
-        --timer: {`${timer}s`};
-        --degFallback: {`${previousRot + rotation}deg`};
-      '
-  >
-    {#each Questions as question, i}
+    --width: {trianglePx};
+    --rot: {rotation}deg;
+    '>
+    {#each Questions as _, i}
       <SpinningPiece
         idx={i}
         rot={degrees(i)}
@@ -75,7 +68,7 @@ const triangleWidth = Math.round(Math.tan(triangleDegree / 2 * Math.PI / 180) * 
 <style>
 #wheel {
   transition: all 1s ease;
-  transform: rotate(var(--degFallback));
+  transform: rotate(0deg);
   position: fixed;
   bottom: 90%;
   left: 50%;
