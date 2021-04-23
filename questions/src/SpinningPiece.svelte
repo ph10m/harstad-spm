@@ -20,7 +20,7 @@
   '
 >
   <div class={`piece-content`}>
-    { idx + 1}
+    <!-- { idx + 1} -->
   </div>
 </div>
 
